@@ -32,27 +32,34 @@ def get_pkt_time():
 
 
 # ============================================================
-# DATABASE CONFIG — PostgreSQL first, SQLite fallback
+# DATABASE CONFIG — PostgreSQL with SSL fix
 # ============================================================
-DATABASE_URL = os.environ.get("POSTGRES_URL")
+DATABASE_URL = os.environ.get("POSTGRES_URL") or os.environ.get("complain_DATABASE_URL") or os.environ.get("DATABASE_URL")
+
 if DATABASE_URL:
-    # PostgreSQL (Vercel)
+    # Neon PostgreSQL URL fix — ensure correct format
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    
+    # Add SSL mode if not present
+    if "sslmode" not in DATABASE_URL and "?" in DATABASE_URL:
+        DATABASE_URL += "&sslmode=require"
+    elif "sslmode" not in DATABASE_URL:
+        DATABASE_URL += "?sslmode=require"
+    
     app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
         'pool_pre_ping': True,
         'pool_recycle': 300,
+        'connect_args': {
+            'sslmode': 'require'
+        }
     }
 else:
-    # SQLite (Local development)
+    # SQLite fallback (local)
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     DB_PATH = os.path.join(BASE_DIR, "daur_awaz.db")
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + DB_PATH.replace("\\", "/")
-
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
-
 # ============================================================
 # CONFIG
 # ============================================================
