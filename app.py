@@ -34,7 +34,7 @@ def get_pkt_time():
 # ============================================================
 # DATABASE CONFIG — PostgreSQL first, SQLite fallback
 # ============================================================
-DATABASE_URL = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL")
+DATABASE_URL = os.environ.get("complain_DATABASE_URL") or os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL")
 
 if DATABASE_URL:
     # PostgreSQL (Vercel)
