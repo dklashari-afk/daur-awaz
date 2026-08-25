@@ -3,7 +3,7 @@ DAUR AWAZ — Official Citizen Complaint & Progress Portal
 Town Committee Daur
 Built by DK Lashari
 
-VERSION: 2.0 (PostgreSQL + PWA + Privacy Fixes)
+VERSION: 2.0 (PostgreSQL + PWA + Privacy Fixes + PKT Time)
 """
 
 from flask import Flask, render_template_string, request, redirect, session, url_for, Response
@@ -29,37 +29,45 @@ def get_pkt_time():
     """Returns current time in Pakistan Standard Time (UTC+5)"""
     return datetime.now(PKT)
 
-
-
 # ============================================================
 # DATABASE CONFIG — PostgreSQL with SSL fix
 # ============================================================
-DATABASE_URL = os.environ.get("POSTGRES_URL") or os.environ.get("complain_DATABASE_URL") or os.environ.get("DATABASE_URL")
+DATABASE_URL = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL")
 
 if DATABASE_URL:
-    # Neon PostgreSQL URL fix — ensure correct format
+    # Fix URL format
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
     
-    # Add SSL mode if not present
-    if "sslmode" not in DATABASE_URL and "?" in DATABASE_URL:
-        DATABASE_URL += "&sslmode=require"
-    elif "sslmode" not in DATABASE_URL:
-        DATABASE_URL += "?sslmode=require"
+    # Ensure SSL mode
+    if "sslmode" not in DATABASE_URL:
+        if "?" in DATABASE_URL:
+            DATABASE_URL += "&sslmode=require"
+        else:
+            DATABASE_URL += "?sslmode=require"
+    
+    # Remove channel_binding if present (Neon doesn't need it)
+    DATABASE_URL = DATABASE_URL.replace("&channel_binding=require", "")
+    DATABASE_URL = DATABASE_URL.replace("?channel_binding=require&", "?")
+    DATABASE_URL = DATABASE_URL.replace("?channel_binding=require", "")
     
     app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
         'pool_pre_ping': True,
         'pool_recycle': 300,
         'connect_args': {
-            'sslmode': 'require'
+            'sslmode': 'require',
         }
     }
 else:
-    # SQLite fallback (local)
+    # SQLite (Local development)
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     DB_PATH = os.path.join(BASE_DIR, "daur_awaz.db")
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + DB_PATH.replace("\\", "/")
+
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
 # ============================================================
 # CONFIG
 # ============================================================
@@ -73,7 +81,6 @@ CONTACT_EMAIL = os.environ.get("CONTACT_EMAIL", "info@daurawaz.gov.pk")
 OFFICE_ADDRESS = os.environ.get("OFFICE_ADDRESS", "Town Committee Office, Daur City")
 
 AREAS = ["Daur Main Bazar", "Station Road", "Shahi Bazar", "Bhatti Colony", "Qazi Mohalla", "Other"]
-# REMOVED: "Bijli / Street Light" — chairman ka electricity se wasta nahi
 CATEGORIES = [
     ("Safai / Kachra", "fa-trash-can"),
     ("Pani ka Masla", "fa-faucet-drip"),
@@ -109,9 +116,8 @@ class Complaint(db.Model):
     upvotes = db.Column(db.Integer, default=0)
     user_identifier = db.Column(db.String(100), nullable=False)
     is_public = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=get_pkt_time)      # ← PKT TIME
-    updated_at = db.Column(db.DateTime, default=get_pkt_time, onupdate=get_pkt_time)  
-
+    created_at = db.Column(db.DateTime, default=get_pkt_time)
+    updated_at = db.Column(db.DateTime, default=get_pkt_time, onupdate=get_pkt_time)
 
 class AdminUser(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -119,10 +125,10 @@ class AdminUser(db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     full_name = db.Column(db.String(100))
     role = db.Column(db.String(20), default="Assistant")
-    created_at = db.Column(db.DateTime, default=get_pkt_time)      # ← 
+    created_at = db.Column(db.DateTime, default=get_pkt_time)
 
 # ============================================================
-# DATABASE INIT (with app context)
+# DATABASE INIT
 # ============================================================
 with app.app_context():
     db.create_all()
@@ -152,7 +158,7 @@ def manifest():
   "orientation": "portrait",
   "icons": [
     {
-      "src": "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="#0B6E4F"/><circle cx="50" cy="50" r="48" fill="none" stroke="#C9A227" stroke-width="2.5"/><circle cx="50" cy="50" r="41" fill="none" stroke="#C9A227" stroke-width="1"/><path d="M50 22 L54 34 L67 34 L57 42 L61 55 L50 47 L39 55 L43 42 L33 34 L46 34 Z" fill="#C9A227"/><text x="50" y="72" text-anchor="middle" fill="#fff" font-size="13" font-weight="700" font-family="Arial">DAUR</text><text x="50" y="82" text-anchor="middle" fill="#EFE3B8" font-size="6" font-family="Arial">TOWN COMMITTEE</text></svg>'),
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%230B6E4F'/%3E%3Ccircle cx='50' cy='50' r='48' fill='none' stroke='%23C9A227' stroke-width='2.5'/%3E%3Ccircle cx='50' cy='50' r='41' fill='none' stroke='%23C9A227' stroke-width='1'/%3E%3Cpath d='M50 22 L54 34 L67 34 L57 42 L61 55 L50 47 L39 55 L43 42 L33 34 L46 34 Z' fill='%23C9A227'/%3E%3Ctext x='50' y='72' text-anchor='middle' fill='%23fff' font-size='13' font-weight='700' font-family='Arial'%3EDAUR%3C/text%3E%3Ctext x='50' y='82' text-anchor='middle' fill='%23EFE3B8' font-size='6' font-family='Arial'%3ETOWN COMMITTEE%3C/text%3E%3C/svg%3E",
       "sizes": "192x192",
       "type": "image/svg+xml"
     }
@@ -160,7 +166,6 @@ def manifest():
 }''',
         mimetype='application/json'
     )
-
 
 @app.route('/service-worker.js')
 def service_worker():
@@ -182,7 +187,6 @@ self.addEventListener("fetch", e => {
         mimetype='application/javascript'
     )
 
-
 @app.route('/offline')
 def offline():
     return render_template_string('''
@@ -190,7 +194,6 @@ def offline():
 <style>body{font-family:sans-serif;text-align:center;padding:50px;background:#0B6E4F;color:white}</style>
 </head><body><h1>📱 Daur Awaz</h1><p>You are offline. Please connect to the internet.</p></body></html>
 ''')
-
 
 # ============================================================
 # SHARED UI
@@ -276,7 +279,7 @@ FOOTER = f'''
     </div>
   </div>
   <div class="border-t border-white/10 py-4 text-center text-xs text-gray-400">
-    © {datetime.now().year} {COUNCIL_NAME_EN} &nbsp;•&nbsp; Platform developed by DK Lashari
+    © {get_pkt_time().year} {COUNCIL_NAME_EN} &nbsp;•&nbsp; Platform developed by DK Lashari
   </div>
 </footer>
 '''
@@ -285,9 +288,38 @@ def status_badge(status):
     s = STATUS_STYLES.get(status, STATUS_STYLES["Pending"])
     return f'<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold {s["bg"]} {s["text"]}"><span class="w-1.5 h-1.5 rounded-full {s["dot"]}"></span>{status}</span>'
 
+# ============================================================
+# COMPLAINT CARD HELPER
+# ============================================================
+def complaint_card_html(c, admin_view=False):
+    photo_html = ""
+    if c.photo_data:
+        photo_html = f'<img src="/photo/{c.id}" class="w-full sm:w-28 h-28 object-cover rounded-xl border" alt="Complaint photo">'
+    remark_html = ""
+    if c.remarks:
+        remark_html = f'''<div class="mt-2 text-xs bg-gov/5 border border-gov/15 rounded-lg px-3 py-2 text-gov-dark">
+            <i class="fa-solid fa-comment-dots mr-1"></i><b>Chairman's Office:</b> {c.remarks}</div>'''
+    return f'''
+    <div class="bg-white rounded-2xl p-4 sm:p-5 border shadow-sm flex flex-col sm:flex-row gap-4">
+      {photo_html}
+      <div class="flex-1">
+        <div class="flex gap-2 items-center mb-2 flex-wrap">
+          {status_badge(c.status)}
+          <span class="text-xs text-gray-500">{c.category} • {c.location} • {c.created_at.strftime('%d %b %Y, %I:%M %p')}</span>
+        </div>
+        <p class="font-semibold text-gray-800 text-sm">{c.description[:160]}{'...' if len(c.description or '') > 160 else ''}</p>
+        <p class="text-xs text-gray-500 mt-1.5">Tracking ID: <b class="font-mono">{c.tracking_id}</b> • Filed by: {c.name}</p>
+        {remark_html}
+      </div>
+      <div class="text-right flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2">
+        <p class="text-sm font-bold text-gray-700">👍 {c.upvotes}</p>
+        <a href="/upvote/{c.id}" class="text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full transition">Upvote</a>
+      </div>
+    </div>
+    '''
 
 # ============================================================
-# PUBLIC HOME — UPDATED HERO TEXT
+# PUBLIC HOME
 # ============================================================
 PUBLIC_HTML = '''
 <!DOCTYPE html><html lang="en"><head><title>Daur Awaz — Daur City Citizen Complaint Portal</title>{head}
@@ -300,7 +332,6 @@ PUBLIC_HTML = '''
     <span class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gov/10 text-gov text-xs font-bold mb-4">
       <i class="fa-solid fa-shield-halved"></i> Official Government Citizen Service
     </span>
-    <!-- UPDATED: "چیئرمین دوڑ تک" + removed "just like Pakistan Citizen Portal" -->
     <h2 class="urdu text-2xl sm:text-3xl text-gov-dark font-bold mb-2 hero-text">آپ کی آواز، براہ راست چیئرمین دوڑ تک</h2>
     <p class="text-gray-600 max-w-2xl mx-auto text-sm sm:text-base">Report civic problems in Daur city — sanitation, water, roads, sewerage — and track their resolution in real time.</p>
   </div>
@@ -362,34 +393,6 @@ PUBLIC_HTML = '''
 </body></html>
 '''
 
-def complaint_card_html(c, admin_view=False):
-    photo_html = ""
-    if c.photo_data:
-        photo_html = f'<img src="/photo/{c.id}" class="w-full sm:w-28 h-28 object-cover rounded-xl border" alt="Complaint photo">'
-    remark_html = ""
-    if c.remarks:
-        remark_html = f'''<div class="mt-2 text-xs bg-gov/5 border border-gov/15 rounded-lg px-3 py-2 text-gov-dark">
-            <i class="fa-solid fa-comment-dots mr-1"></i><b>Chairman's Office:</b> {c.remarks}</div>'''
-    return f'''
-    <div class="bg-white rounded-2xl p-4 sm:p-5 border shadow-sm flex flex-col sm:flex-row gap-4">
-      {photo_html}
-      <div class="flex-1">
-        <div class="flex gap-2 items-center mb-2 flex-wrap">
-          {status_badge(c.status)}
-          <span class="text-xs text-gray-500">{c.category} • {c.location} • {c.created_at.strftime('%d %b %Y')}</span>
-        </div>
-        <p class="font-semibold text-gray-800 text-sm">{c.description[:160]}{'...' if len(c.description or '') > 160 else ''}</p>
-        <p class="text-xs text-gray-500 mt-1.5">Tracking ID: <b class="font-mono">{c.tracking_id}</b> • Filed by: {c.name}</p>
-        {remark_html}
-      </div>
-      <div class="text-right flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2">
-        <p class="text-sm font-bold text-gray-700">👍 {c.upvotes}</p>
-        <a href="/upvote/{c.id}" class="text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full transition">Upvote</a>
-      </div>
-    </div>
-    '''
-
-
 @app.route("/")
 def home():
     search = request.args.get("search", "").strip()
@@ -426,10 +429,9 @@ def home():
         footer=FOOTER,
     )
 
-
 @app.route("/submit", methods=["POST"])
 def submit():
-    tracking = f"DAUR-{datetime.now().year}-{str(uuid.uuid4())[:6].upper()}"
+    tracking = f"DAUR-{get_pkt_time().year}-{str(uuid.uuid4())[:6].upper()}"
     phone = request.form.get("phone", "").strip()
     user_identifier = phone
 
@@ -458,25 +460,22 @@ def submit():
     session['tracking_id'] = tracking
     return redirect("/")
 
-
 @app.route("/photo/<int:id>")
 def photo(id):
-    c = Complaint.query.get_or_404(id)
-    if not c.photo_data:
+    c = db.session.get(Complaint, id)
+    if not c or not c.photo_data:
         return "", 404
     header, b64data = c.photo_data.split(",", 1)
     mime = header.split(":")[1].split(";")[0]
     return Response(base64.b64decode(b64data), mimetype=mime)
 
-
 @app.route("/upvote/<int:id>")
 def upvote(id):
-    c = Complaint.query.get(id)
+    c = db.session.get(Complaint, id)
     if c:
         c.upvotes += 1
         db.session.commit()
     return redirect(request.referrer or "/")
-
 
 # ============================================================
 # MY COMPLAINTS
@@ -514,7 +513,6 @@ def my_complaints():
     elif phone:
         q = q.filter_by(phone=phone)
     else:
-        complaints = []
         cards = '<div class="text-center text-gray-400 py-10 bg-white rounded-2xl border"><p class="text-sm">Apni complaint dekhne ke liye tracking ID ya phone number likhein.</p></div>'
         return MY_COMPLAINTS_HTML.format(
             head=HEAD.format(emblem_favicon=emblem_favicon()),
@@ -532,7 +530,6 @@ def my_complaints():
         complaints=cards,
         footer=FOOTER,
     )
-
 
 # ============================================================
 # TRACK COMPLAINT
@@ -599,7 +596,6 @@ def track():
             result = '<div class="text-center text-gray-400 py-10 bg-white rounded-2xl border"><i class="fa-solid fa-magnifying-glass text-2xl mb-2"></i><p class="text-sm">Is ID se koi complaint nahi mili. ID dobara check karein.</p></div>'
     return TRACK_HTML.format(head=HEAD.format(emblem_favicon=emblem_favicon()), navbar=navbar("track"), qid=qid, result=result, footer=FOOTER)
 
-
 # ============================================================
 # CHAIRMAN LOGIN
 # ============================================================
@@ -637,7 +633,6 @@ def login():
             return redirect("/admin")
         error = '<p class="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4 text-center">Ghalat username ya password.</p>'
     return ADMIN_LOGIN.format(head=HEAD.format(emblem_favicon=emblem_favicon()), emblem_lg=emblem(56), council=COUNCIL_NAME_EN, error=error)
-
 
 # ============================================================
 # CHAIRMAN DASHBOARD
@@ -700,7 +695,7 @@ def admin_row_html(c):
         <div class="flex items-center gap-2 flex-wrap mb-1">
           <span class="font-mono text-xs text-gray-400">{c.tracking_id}</span>
           {status_badge(c.status)}
-          <span class="text-xs text-gray-400">{c.created_at.strftime('%d %b %Y')}</span>
+          <span class="text-xs text-gray-400">{c.created_at.strftime('%d %b %Y, %I:%M %p')}</span>
           {f'<span class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Public ✓</span>' if c.is_public else '<span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Private</span>'}
         </div>
         <p class="text-sm font-semibold text-gray-800">{c.description}</p>
@@ -755,51 +750,46 @@ def admin():
         rows=rows,
     )
 
-
 @app.route("/admin/public/<int:id>")
 def approve_public(id):
     if not session.get("admin"):
         return redirect("/login")
-    c = Complaint.query.get(id)
+    c = db.session.get(Complaint, id)
     if c:
         c.is_public = True
         db.session.commit()
     return redirect("/admin")
-
 
 @app.route("/status/<int:id>/<status>")
 def change_status(id, status):
     if not session.get("admin"):
         return redirect("/login")
     if status in STATUS_STYLES:
-        c = Complaint.query.get(id)
+        c = db.session.get(Complaint, id)
         if c:
             c.status = status
             db.session.commit()
     return redirect(request.referrer or "/admin")
 
-
 @app.route("/remark/<int:id>", methods=["POST"])
 def remark(id):
     if not session.get("admin"):
         return redirect("/login")
-    c = Complaint.query.get(id)
+    c = db.session.get(Complaint, id)
     if c:
         c.remarks = request.form.get("remarks", "").strip()
         db.session.commit()
     return redirect(request.referrer or "/admin")
 
-
 @app.route("/delete/<int:id>")
 def delete(id):
     if not session.get("admin"):
         return redirect("/login")
-    c = Complaint.query.get(id)
+    c = db.session.get(Complaint, id)
     if c:
         db.session.delete(c)
         db.session.commit()
     return redirect("/admin")
-
 
 # ============================================================
 # MY ACCOUNT
@@ -843,7 +833,7 @@ ACCOUNT_HTML = '''
 def account():
     if not session.get("admin"):
         return redirect("/login")
-    user = AdminUser.query.get(session["admin_id"])
+    user = db.session.get(AdminUser, session["admin_id"])
     if not user:
         session.clear()
         return redirect("/login")
@@ -862,12 +852,11 @@ def account():
         message=msg_html, username=user.username, role=user.role, full_name=user.full_name or "",
     )
 
-
 @app.route("/admin/account/password", methods=["POST"])
 def account_password():
     if not session.get("admin"):
         return redirect("/login")
-    user = AdminUser.query.get(session["admin_id"])
+    user = db.session.get(AdminUser, session["admin_id"])
     current = request.form.get("current_password", "")
     new = request.form.get("new_password", "")
     confirm = request.form.get("confirm_password", "")
@@ -879,18 +868,16 @@ def account_password():
     db.session.commit()
     return redirect("/admin/account?msg=pw_ok")
 
-
 @app.route("/admin/account/name", methods=["POST"])
 def account_name():
     if not session.get("admin"):
         return redirect("/login")
-    user = AdminUser.query.get(session["admin_id"])
+    user = db.session.get(AdminUser, session["admin_id"])
     if user:
         user.full_name = request.form.get("full_name", "").strip()
         db.session.commit()
         session["admin_name"] = user.full_name or user.username
     return redirect("/admin/account?msg=name_ok")
-
 
 # ============================================================
 # MANAGE USERS
@@ -967,7 +954,6 @@ def users():
         message=msg_html, count=len(all_users), rows=rows,
     )
 
-
 @app.route("/admin/users/add", methods=["POST"])
 def users_add():
     if not session.get("admin"):
@@ -991,7 +977,6 @@ def users_add():
     db.session.commit()
     return redirect("/admin/users?msg=created")
 
-
 @app.route("/admin/users/delete/<int:id>")
 def users_delete(id):
     if not session.get("admin"):
@@ -1000,18 +985,16 @@ def users_delete(id):
         return redirect("/admin/users")
     if AdminUser.query.count() <= 1:
         return redirect("/admin/users?msg=last")
-    u = AdminUser.query.get(id)
+    u = db.session.get(AdminUser, id)
     if u:
         db.session.delete(u)
         db.session.commit()
     return redirect("/admin/users?msg=removed")
 
-
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect("/login")
-
 
 # ============================================================
 # REPORTS
@@ -1147,7 +1130,7 @@ def reports():
         yearly[y]["total"] += 1
         yearly[y][c.status] = yearly[y].get(c.status, 0) + 1
 
-    now = datetime.utcnow()
+    now = get_pkt_time()
     this_month_stats = monthly.get((now.year, now.month), _blank_stats())
     this_year_stats = yearly.get(now.year, _blank_stats())
 
@@ -1173,9 +1156,8 @@ def reports():
         monthly_rows=monthly_rows, yearly_rows=yearly_rows,
     )
 
-
 # ============================================================
-# MAIN (for local development)
+# MAIN
 # ============================================================
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
