@@ -34,7 +34,7 @@ def get_pkt_time():
 # ============================================================
 # DATABASE CONFIG — PostgreSQL with SSL fix
 # ============================================================
-DATABASE_URL = os.environ.get("POSTGRES_URL") or os.environ.get("complain_DATABASE_URL") or os.environ.get("DATABASE_URL")
+DATABASE_URL = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL")
 
 if DATABASE_URL:
     # Neon PostgreSQL URL fix — ensure correct format
