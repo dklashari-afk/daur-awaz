@@ -32,26 +32,41 @@ def get_pkt_time():
 
 
 # ============================================================
-# DATABASE CONFIG — PostgreSQL with SSL fix
+# ✅ DATABASE CONFIG — YOUR NEON POSTGRESQL URL
 # ============================================================
-DATABASE_URL = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL")
+# URL: postgresql://neondb_owner:npg_JWPQx1k4IqpN@ep-gentle-morning-aujjcvoc-pooler.c-10.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
 
+DATABASE_URL = os.environ.get("POSTGRES_URL")
+
+if not DATABASE_URL:
+    # Fallback for local testing (use your actual URL)
+    DATABASE_URL = "postgresql://neondb_owner:npg_JWPQx1k4IqpN@ep-gentle-morning-aujjcvoc-pooler.c-10.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+
+# Ensure proper format for SQLAlchemy
 if DATABASE_URL:
-    # PostgreSQL (Vercel)
+    # Fix protocol if needed
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
-    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'pool_pre_ping': True,
-        'pool_recycle': 300,
-    }
-else:
-    # SQLite (Local development)
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    DB_PATH = os.path.join(BASE_DIR, "daur_awaz.db")
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + DB_PATH.replace("\\", "/")
+    
+    # Ensure SSL mode
+    if "sslmode" not in DATABASE_URL:
+        DATABASE_URL += "?sslmode=require"
+    
+    # Remove channel_binding if causing issues (Neon doesn't need it)
+    DATABASE_URL = DATABASE_URL.replace("&channel_binding=require", "")
+    DATABASE_URL = DATABASE_URL.replace("?channel_binding=require&", "?")
+    DATABASE_URL = DATABASE_URL.replace("?channel_binding=require", "")
 
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_pre_ping': True,
+    'pool_recycle': 300,
+    'connect_args': {
+        'sslmode': 'require',
+    }
+}
+
 db = SQLAlchemy(app)
 # ============================================================
 # CONFIG
