@@ -6,7 +6,7 @@ Built by DK Lashari
 VERSION: 2.0 (PostgreSQL + PWA + Privacy Fixes + PKT Time)
 """
 
-from flask import Flask, render_template_string, request, redirect, session, url_for, Response
+from flask import Flask, render_template_string, request, redirect, session, url_for, Response, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
@@ -128,6 +128,27 @@ class AdminUser(db.Model):
     created_at = db.Column(db.DateTime, default=get_pkt_time)
 
 # ============================================================
+# NOTIFICATION MODELS — NEW
+# ============================================================
+class PushSubscription(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    endpoint = db.Column(db.String(500), unique=True)
+    keys = db.Column(db.JSON)
+    user_type = db.Column(db.String(20))  # 'citizen' or 'chairman'
+    user_identifier = db.Column(db.String(100))  # phone for citizen, 'chairman' for chairman
+    created_at = db.Column(db.DateTime, default=get_pkt_time)
+
+class Notification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_type = db.Column(db.String(20))  # 'citizen' or 'chairman'
+    user_identifier = db.Column(db.String(100))  # phone or 'chairman'
+    title = db.Column(db.String(200))
+    body = db.Column(db.Text)
+    link = db.Column(db.String(500))
+    is_read = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=get_pkt_time)
+
+# ============================================================
 # DATABASE INIT
 # ============================================================
 with app.app_context():
@@ -140,6 +161,114 @@ with app.app_context():
             role="Chairman",
         ))
         db.session.commit()
+
+# ============================================================
+# NOTIFICATION FUNCTIONS — NEW
+# ============================================================
+
+def create_notification(user_type, user_identifier, title, body, link='/'):
+    """Save notification to database"""
+    notif = Notification(
+        user_type=user_type,
+        user_identifier=user_identifier,
+        title=title,
+        body=body,
+        link=link
+    )
+    db.session.add(notif)
+    db.session.commit()
+    return notif
+
+def notify_citizen(complaint, status_update=False):
+    """Send notification to citizen"""
+    status_messages = {
+        'Pending': 'آپ کی شکایت موصول ہو گئی ہے۔ ہماری ٹیم جلد رابطہ کرے گی۔',
+        'In-Progress': 'آپ کی شکایت پر کام شروع ہو گیا ہے۔',
+        'Resolved': 'آپ کی شکایت حل کر دی گئی ہے۔'
+    }
+    
+    title = f"Complaint {complaint.tracking_id}"
+    body = status_messages.get(complaint.status, '')
+    link = f"/track?id={complaint.tracking_id}"
+    
+    create_notification('citizen', complaint.phone, title, body, link)
+
+def notify_chairman(complaint):
+    """Send notification to chairman"""
+    title = "🔔 New Complaint"
+    body = f"{complaint.name} - {complaint.category} ({complaint.tracking_id})"
+    link = "/admin"
+    
+    create_notification('chairman', 'chairman', title, body, link)
+
+# ============================================================
+# NOTIFICATION ROUTES — NEW
+# ============================================================
+
+@app.route('/subscribe', methods=['POST'])
+def subscribe():
+    """Save push subscription"""
+    data = request.json
+    subscription_data = data.get('subscription')
+    user_type = data.get('user_type', 'citizen')
+    user_identifier = data.get('user_identifier', 'unknown')
+    
+    existing = PushSubscription.query.filter_by(
+        endpoint=subscription_data.get('endpoint')
+    ).first()
+    
+    if existing:
+        existing.user_type = user_type
+        existing.user_identifier = user_identifier
+        existing.keys = subscription_data.get('keys')
+        db.session.commit()
+        return jsonify({'status': 'updated'}), 200
+    
+    new_sub = PushSubscription(
+        endpoint=subscription_data.get('endpoint'),
+        keys=subscription_data.get('keys'),
+        user_type=user_type,
+        user_identifier=user_identifier
+    )
+    db.session.add(new_sub)
+    db.session.commit()
+    
+    return jsonify({'status': 'subscribed'}), 201
+
+@app.route('/notifications')
+def get_notifications():
+    """Get notifications for current user"""
+    user_type = request.args.get('type', 'citizen')
+    user_identifier = request.args.get('identifier', '')
+    
+    if user_type == 'chairman':
+        notifications = Notification.query.filter_by(
+            user_type='chairman',
+            user_identifier='chairman'
+        ).order_by(Notification.created_at.desc()).limit(50).all()
+    else:
+        notifications = Notification.query.filter_by(
+            user_type='citizen',
+            user_identifier=user_identifier
+        ).order_by(Notification.created_at.desc()).limit(50).all()
+    
+    return jsonify([{
+        'id': n.id,
+        'title': n.title,
+        'body': n.body,
+        'link': n.link,
+        'is_read': n.is_read,
+        'created_at': n.created_at.strftime('%d %b %Y, %I:%M %p')
+    } for n in notifications])
+
+@app.route('/mark-notification-read/<int:id>', methods=['POST'])
+def mark_notification_read(id):
+    """Mark a notification as read"""
+    notif = db.session.get(Notification, id)
+    if notif:
+        notif.is_read = True
+        db.session.commit()
+    return jsonify({'status': 'success'})
 
 # ============================================================
 # PWA MANIFEST & SERVICE WORKER
@@ -411,7 +540,59 @@ def home():
     if tracking_id:
         success_box = f'''<div class="mt-5 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
             <p class="text-sm font-bold text-emerald-800"><i class="fa-solid fa-circle-check mr-1"></i> Complaint Darj Ho Gayi!</p>
-            <p class="text-xs text-emerald-700 mt-1">Tracking ID: <b class="font-mono">{tracking_id}</b> — is ID ko save kar lein, isse aap apni complaint <a href="/track?id={tracking_id}" class="underline font-semibold">track</a> kar sakte hain.</p></div>'''
+            <p class="text-xs text-emerald-700 mt-1">Tracking ID: <b class="font-mono">{tracking_id}</b> — is ID ko save kar lein, isse aap apni complaint <a href="/track?id={tracking_id}" class="underline font-semibold">track</a> kar sakte hain.</p>
+            <!-- NOTIFICATION PROMPT -->
+            <div id="notification-prompt" class="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p class="text-sm text-blue-800">🔔 Get updates on your complaint?</p>
+                <div class="flex gap-2 mt-2">
+                    <button id="notif-yes" class="px-3 py-1 bg-blue-600 text-white rounded text-xs">Yes, Notify Me</button>
+                    <button id="notif-no" class="px-3 py-1 bg-gray-300 rounded text-xs">No Thanks</button>
+                </div>
+            </div>
+        </div>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {{
+            const phone = document.querySelector('input[name="phone"]').value;
+            
+            function subscribeToPush(userType, userIdentifier) {{
+                if ('serviceWorker' in navigator && 'PushManager' in window) {{
+                    navigator.serviceWorker.ready.then(function(registration) {{
+                        registration.pushManager.subscribe({{
+                            userVisibleOnly: true,
+                            applicationServerKey: 'BO_7X3...'  // Replace with your VAPID public key
+                        }}).then(function(subscription) {{
+                            fetch('/subscribe', {{
+                                method: 'POST',
+                                headers: {{ 'Content-Type': 'application/json' }},
+                                body: JSON.stringify({{
+                                    subscription: subscription,
+                                    user_type: userType,
+                                    user_identifier: userIdentifier
+                                }})
+                            }});
+                        }});
+                    }});
+                }}
+            }}
+            
+            document.getElementById('notif-yes').addEventListener('click', function() {{
+                if ('Notification' in window) {{
+                    Notification.requestPermission().then(function(permission) {{
+                        if (permission === 'granted') {{
+                            subscribeToPush('citizen', phone);
+                            document.getElementById('notification-prompt').innerHTML = 
+                                '<p class="text-sm text-green-800">✅ Notifications enabled!</p>';
+                        }}
+                    }});
+                }}
+                document.getElementById('notification-prompt').querySelector('.flex').style.display = 'none';
+            }});
+            
+            document.getElementById('notif-no').addEventListener('click', function() {{
+                document.getElementById('notification-prompt').style.display = 'none';
+            }});
+        }});
+        </script>'''
 
     area_options = "".join(f'<option value="{a}">{a}</option>' for a in AREAS)
     category_options = "".join(f'<option value="{c}">{c}</option>' for c, _ in CATEGORIES)
@@ -457,6 +638,13 @@ def submit():
     )
     db.session.add(c)
     db.session.commit()
+    
+    # ============================================================
+    # NOTIFICATIONS — ADDED
+    # ============================================================
+    notify_citizen(c, status_update=False)
+    notify_chairman(c)
+    
     session['tracking_id'] = tracking
     return redirect("/")
 
@@ -767,8 +955,15 @@ def change_status(id, status):
     if status in STATUS_STYLES:
         c = db.session.get(Complaint, id)
         if c:
+            old_status = c.status
             c.status = status
             db.session.commit()
+            
+            # ============================================================
+            # NOTIFICATION ON STATUS CHANGE — ADDED
+            # ============================================================
+            if old_status != status:
+                notify_citizen(c, status_update=True)
     return redirect(request.referrer or "/admin")
 
 @app.route("/remark/<int:id>", methods=["POST"])
