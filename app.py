@@ -99,6 +99,22 @@ SEED_ADMIN_USER = os.environ.get("ADMIN_USERNAME", "admin")
 SEED_ADMIN_PASS = os.environ.get("ADMIN_PASSWORD", "admin123")
 
 # ============================================================
+# VAPID KEYS (for Web Push Notifications)
+# ============================================================
+VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '# ============================================================
+# VAPID KEYS (for Web Push Notifications)
+# ============================================================
+VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', 'BMcKowjzM8xDPBTorZwaEBXSWHvFTrqec2T4Y2AACPjMrS-c-i6z_bLptLQ_sWtQsr88L0GtKnPY0MUbxdr7nws')
+VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', 'a8sydyZWiBj3ugrpOo1XNZEHK_6KtU61OrIDTsgMDHU')
+VAPID_CLAIMS = {
+    'sub': 'mailto:info@daurawaz.gov.pk'
+}')
+VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', 'VNlfcVVFB4V50tqKO8WFHHOhx_ZrabUkZ2BYVOnNg9A')
+VAPID_CLAIMS = {
+    'sub': 'mailto:info@daurawaz.gov.pk'
+}
+
+# ============================================================
 # MODELS — WITH PKT TIME
 # ============================================================
 class Complaint(db.Model):
@@ -559,7 +575,7 @@ def home():
                     navigator.serviceWorker.ready.then(function(registration) {{
                         registration.pushManager.subscribe({{
                             userVisibleOnly: true,
-                            applicationServerKey: 'BO_7X3...'  // Replace with your VAPID public key
+                            applicationServerKey: 'BMcKowjzM8xDPBTorZwaEBXSWHvFTrqec2T4Y2AACPjMrS-c-i6z_bLptLQ_sWtQsr88L0GtKnPY0MUbxdr7nws'
                         }}).then(function(subscription) {{
                             fetch('/subscribe', {{
                                 method: 'POST',
