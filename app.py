@@ -101,9 +101,6 @@ SEED_ADMIN_PASS = os.environ.get("ADMIN_PASSWORD", "admin123")
 # ============================================================
 # VAPID KEYS (for Web Push Notifications)
 # ============================================================
-VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '# ============================================================
-# VAPID KEYS (for Web Push Notifications)
-# ============================================================
 VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', 'BMcKowjzM8xDPBTorZwaEBXSWHvFTrqec2T4Y2AACPjMrS-c-i6z_bLptLQ_sWtQsr88L0GtKnPY0MUbxdr7nws')
 VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', 'a8sydyZWiBj3ugrpOo1XNZEHK_6KtU61OrIDTsgMDHU')
 VAPID_CLAIMS = {
