@@ -97,7 +97,6 @@ STATUS_STYLES = {
 
 SEED_ADMIN_USER = os.environ.get("ADMIN_USERNAME", "admin")
 SEED_ADMIN_PASS = os.environ.get("ADMIN_PASSWORD", "admin123")
-
 # ============================================================
 # VAPID KEYS (for Web Push Notifications)
 # ============================================================
