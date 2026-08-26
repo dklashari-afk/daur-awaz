@@ -105,12 +105,7 @@ VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', 'BMcKowjzM8xDPBTorZwaEBXSW
 VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', 'a8sydyZWiBj3ugrpOo1XNZEHK_6KtU61OrIDTsgMDHU')
 VAPID_CLAIMS = {
     'sub': 'mailto:info@daurawaz.gov.pk'
-}')
-VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', 'VNlfcVVFB4V50tqKO8WFHHOhx_ZrabUkZ2BYVOnNg9A')
-VAPID_CLAIMS = {
-    'sub': 'mailto:info@daurawaz.gov.pk'
 }
-
 # ============================================================
 # MODELS — WITH PKT TIME
 # ============================================================
