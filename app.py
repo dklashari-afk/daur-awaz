@@ -242,6 +242,87 @@ def notify_chairman(complaint):
 @app.route('/vapid-public-key')
 def vapid_public_key():
     return jsonify({'publicKey': VAPID_PUBLIC_KEY})
+    @app.route('/test-push')
+def test_push():
+    return '''
+    <!DOCTYPE html>
+    <html>
+    <head><title>Test Push</title></head>
+    <body style="font-family:sans-serif;padding:20px;max-width:600px;margin:0 auto;">
+        <h1>🔔 Test Push Notification</h1>
+        <p>Click the button below to test push notifications on this device.</p>
+        <button id="notify-btn" style="padding:12px 24px;background:#0B6E4F;color:white;border:none;border-radius:8px;font-size:16px;cursor:pointer;">
+            Send Test Notification
+        </button>
+        <p id="status" style="margin-top:20px;font-size:14px;color:#555;"></p>
+        
+        <script>
+        document.getElementById('notify-btn').addEventListener('click', function() {
+            const status = document.getElementById('status');
+            status.textContent = '🔔 Requesting permission...';
+            
+            Notification.requestPermission().then(perm => {
+                if (perm !== 'granted') {
+                    status.textContent = '❌ Permission denied. Please allow notifications in browser settings.';
+                    return;
+                }
+                status.textContent = '✅ Permission granted. Subscribing...';
+                
+                if (!('serviceWorker' in navigator)) {
+                    status.textContent = '❌ Service Worker not supported.';
+                    return;
+                }
+                
+                navigator.serviceWorker.ready.then(reg => {
+                    return reg.pushManager.getSubscription().then(sub => {
+                        if (sub) {
+                            status.textContent = '✅ Already subscribed. Sending test...';
+                            return sub;
+                        }
+                        return fetch('/vapid-public-key')
+                            .then(r => r.json())
+                            .then(data => {
+                                const key = data.publicKey;
+                                const pad = '='.repeat((4 - key.length % 4) % 4);
+                                const b64 = (key + pad).replace(/-/g, '+').replace(/_/g, '/');
+                                const raw = atob(b64);
+                                const arr = new Uint8Array(raw.length);
+                                for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+                                return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: arr });
+                            });
+                    }).then(sub => {
+                        if (!sub) {
+                            status.textContent = '❌ Failed to subscribe.';
+                            return;
+                        }
+                        status.textContent = '✅ Subscription ready. Sending test notification...';
+                        return fetch('/send-test-notification', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                subscription: sub,
+                                title: '🔔 Test Push',
+                                body: 'Yeh ek test notification hai!',
+                                url: '/'
+                            })
+                        });
+                    }).then(res => {
+                        if (res && res.ok) {
+                            status.textContent = '✅ Test notification sent! Check your device.';
+                        } else {
+                            status.textContent = '❌ Failed to send. Check console for errors.';
+                        }
+                    }).catch(err => {
+                        status.textContent = '❌ Error: ' + err.message;
+                        console.error(err);
+                    });
+                });
+            });
+        });
+        </script>
+    </body>
+    </html>
+    '''
 
 @app.route('/subscribe', methods=['POST'])
 def subscribe():
@@ -301,6 +382,7 @@ def get_notifications():
         'created_at': n.created_at.strftime('%d %b %Y, %I:%M %p')
     } for n in notifications])
 
+
 @app.route('/mark-notification-read/<int:id>', methods=['POST'])
 def mark_notification_read(id):
     notif = db.session.get(Notification, id)
@@ -308,6 +390,36 @@ def mark_notification_read(id):
         notif.is_read = True
         db.session.commit()
     return jsonify({'status': 'success'})
+    @app.route('/send-test-notification', methods=['POST'])
+def send_test_notification():
+    """Send a test push notification"""
+    try:
+        data = request.json
+        subscription = data.get('subscription')
+        title = data.get('title', 'Test Notification')
+        body = data.get('body', 'This is a test push notification!')
+        url = data.get('url', '/')
+
+        if not subscription:
+            return jsonify({'error': 'No subscription'}), 400
+
+        # Send push notification using webpush
+        webpush(
+            subscription_info=subscription,
+            data=json.dumps({
+                'title': title,
+                'body': body,
+                'url': url,
+                'icon': 'https://cdn-icons-png.flaticon.com/512/3112/3112946.png'
+            }),
+            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_claims=VAPID_CLAIMS
+        )
+
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        print(f"Test push error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 # ============================================================
 # PWA MANIFEST & SERVICE WORKER
