@@ -242,7 +242,8 @@ def notify_chairman(complaint):
 @app.route('/vapid-public-key')
 def vapid_public_key():
     return jsonify({'publicKey': VAPID_PUBLIC_KEY})
-    @app.route('/test-push')
+
+@app.route('/test-push')
 def test_push():
     return '''
     <!DOCTYPE html>
@@ -382,7 +383,6 @@ def get_notifications():
         'created_at': n.created_at.strftime('%d %b %Y, %I:%M %p')
     } for n in notifications])
 
-
 @app.route('/mark-notification-read/<int:id>', methods=['POST'])
 def mark_notification_read(id):
     notif = db.session.get(Notification, id)
@@ -390,7 +390,8 @@ def mark_notification_read(id):
         notif.is_read = True
         db.session.commit()
     return jsonify({'status': 'success'})
-    @app.route('/send-test-notification', methods=['POST'])
+
+@app.route('/send-test-notification', methods=['POST'])
 def send_test_notification():
     """Send a test push notification"""
     try:
@@ -403,7 +404,6 @@ def send_test_notification():
         if not subscription:
             return jsonify({'error': 'No subscription'}), 400
 
-        # Send push notification using webpush
         webpush(
             subscription_info=subscription,
             data=json.dumps({
