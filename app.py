@@ -313,66 +313,16 @@ def service_worker():
     })
   );
 });
-
 self.addEventListener("fetch", e => {
   e.respondWith(
     caches.match(e.request).then(response => {
       return response || fetch(e.request);
     })
   );
-});
-
-// ============================================================
-// 🔥 PUSH NOTIFICATION HANDLERS
-// ============================================================
-
-self.addEventListener("push", function(event) {
-  console.log("🔔 Push notification received");
-  
-  let data = {
-    title: "Daur Awaz",
-    body: "Aapki complaint ki status update ho gayi!",
-    icon: "/favicon.ico",
-    url: "/"
-  };
-  
-  if (event.data) {
-    try {
-      const parsed = event.data.json();
-      data = { ...data, ...parsed };
-    } catch (e) {
-      data.body = event.data.text();
-    }
-  }
-  
-  event.waitUntil(
-    self.registration.showNotification(data.title, {
-      body: data.body,
-      icon: data.icon,
-      vibrate: [200, 100, 200],
-      data: { url: data.url },
-      actions: [
-        { action: "open", title: "🔍 View" },
-        { action: "close", title: "❌ Dismiss" }
-      ]
-    })
-  );
-});
-
-self.addEventListener("notificationclick", function(event) {
-  event.notification.close();
-  const url = event.notification.data?.url || "/";
-  event.waitUntil(
-    clients.matchAll({ type: "window" }).then(clientList => {
-      for (let client of clientList) {
-        if (client.url === url && "focus" in client) return client.focus();
-      }
-      if (clients.openWindow) return clients.openWindow(url);
-    })
-  );
 });''',
         mimetype='application/javascript'
     )
+
 @app.route('/offline')
 def offline():
     return render_template_string('''
@@ -1012,23 +962,13 @@ def change_status(id, status):
     if status in STATUS_STYLES:
         c = db.session.get(Complaint, id)
         if c:
+            old_status = c.status
             c.status = status
             db.session.commit()
-            print(f"✅ Status changed: {c.tracking_id} -> {status}")
-    return redirect("/admin")            
             
-            try:
-                from flask import jsonify
-                # Yahan push notification bhejne ka code aayega
-                pass
-            except Exception as e:
-                print(f"Push error: {e}")
-                
-    return redirect("/admin")
-            
-    # ============================================================
-    # NOTIFICATION ON STATUS CHANGE — ADDED
-    # ============================================================
+            # ============================================================
+            # NOTIFICATION ON STATUS CHANGE — ADDED
+            # ============================================================
             if old_status != status:
                 notify_citizen(c, status_update=True)
     return redirect(request.referrer or "/admin")
