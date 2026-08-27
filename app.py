@@ -180,6 +180,7 @@ with app.app_context():
 # NOTIFICATION FUNCTIONS — NEW
 # ============================================================
 
+<<<<<<< HEAD
 def send_web_push(user_type, user_identifier, title, body, link='/'):
     if not HAS_WEBPUSH:
         return
@@ -224,12 +225,48 @@ def notify_chairman(complaint):
     title = "🔔 New Complaint"
     body = f"{complaint.name} - {complaint.category} ({complaint.tracking_id})"
     link = "/admin"
+=======
+def create_notification(user_type, user_identifier, title, body, link='/'):
+    """Save notification to database"""
+    notif = Notification(
+        user_type=user_type,
+        user_identifier=user_identifier,
+        title=title,
+        body=body,
+        link=link
+    )
+    db.session.add(notif)
+    db.session.commit()
+    return notif
+
+def notify_citizen(complaint, status_update=False):
+    """Send notification to citizen"""
+    status_messages = {
+        'Pending': 'آپ کی شکایت موصول ہو گئی ہے۔ ہماری ٹیم جلد رابطہ کرے گی۔',
+        'In-Progress': 'آپ کی شکایت پر کام شروع ہو گیا ہے۔',
+        'Resolved': 'آپ کی شکایت حل کر دی گئی ہے۔'
+    }
+    
+    title = f"Complaint {complaint.tracking_id}"
+    body = status_messages.get(complaint.status, '')
+    link = f"/track?id={complaint.tracking_id}"
+    
+    create_notification('citizen', complaint.phone, title, body, link)
+
+def notify_chairman(complaint):
+    """Send notification to chairman"""
+    title = "🔔 New Complaint"
+    body = f"{complaint.name} - {complaint.category} ({complaint.tracking_id})"
+    link = "/admin"
+    
+>>>>>>> b700537ffc3b52cfabc0e2fcb57ab3764fbd957d
     create_notification('chairman', 'chairman', title, body, link)
 
 # ============================================================
 # NOTIFICATION ROUTES — NEW
 # ============================================================
 
+<<<<<<< HEAD
 @app.route('/vapid-public-key')
 def vapid_public_key():
     return jsonify({'publicKey': VAPID_PUBLIC_KEY})
@@ -260,6 +297,37 @@ def subscribe():
     except Exception as e:
         print(f"Subscribe error: {e}")
         return jsonify({'error': str(e)}), 500
+=======
+@app.route('/subscribe', methods=['POST'])
+def subscribe():
+    """Save push subscription"""
+    data = request.json
+    subscription_data = data.get('subscription')
+    user_type = data.get('user_type', 'citizen')
+    user_identifier = data.get('user_identifier', 'unknown')
+    
+    existing = PushSubscription.query.filter_by(
+        endpoint=subscription_data.get('endpoint')
+    ).first()
+    
+    if existing:
+        existing.user_type = user_type
+        existing.user_identifier = user_identifier
+        existing.keys = subscription_data.get('keys')
+        db.session.commit()
+        return jsonify({'status': 'updated'}), 200
+    
+    new_sub = PushSubscription(
+        endpoint=subscription_data.get('endpoint'),
+        keys=subscription_data.get('keys'),
+        user_type=user_type,
+        user_identifier=user_identifier
+    )
+    db.session.add(new_sub)
+    db.session.commit()
+    
+    return jsonify({'status': 'subscribed'}), 201
+>>>>>>> b700537ffc3b52cfabc0e2fcb57ab3764fbd957d
 
 @app.route('/notifications')
 def get_notifications():
@@ -619,6 +687,7 @@ def home():
         success_box = f'''<div class="mt-5 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
             <p class="text-sm font-bold text-emerald-800"><i class="fa-solid fa-circle-check mr-1"></i> Complaint Darj Ho Gayi!</p>
             <p class="text-xs text-emerald-700 mt-1">Tracking ID: <b class="font-mono">{tracking_id}</b> — is ID ko save kar lein, isse aap apni complaint <a href="/track?id={tracking_id}" class="underline font-semibold">track</a> kar sakte hain.</p>
+<<<<<<< HEAD
             <div id="notification-prompt" class="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                 <p class="text-sm text-blue-800">🔔 Get updates on your complaint?</p>
                 <div class="flex gap-2 mt-2">
@@ -626,10 +695,20 @@ def home():
                     <button id="notif-no" class="px-3 py-1 bg-gray-200 rounded text-xs">No Thanks</button>
                 </div>
                 <p class="text-[10px] text-gray-500 mt-2">Phone: {safe_phone}</p>
+=======
+            <!-- NOTIFICATION PROMPT -->
+            <div id="notification-prompt" class="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p class="text-sm text-blue-800">🔔 Get updates on your complaint?</p>
+                <div class="flex gap-2 mt-2">
+                    <button id="notif-yes" class="px-3 py-1 bg-blue-600 text-white rounded text-xs">Yes, Notify Me</button>
+                    <button id="notif-no" class="px-3 py-1 bg-gray-300 rounded text-xs">No Thanks</button>
+                </div>
+>>>>>>> b700537ffc3b52cfabc0e2fcb57ab3764fbd957d
             </div>
         </div>
         <script>
         document.addEventListener('DOMContentLoaded', function() {{
+<<<<<<< HEAD
             const phone = "{safe_phone}";
             if(phone){{ localStorage.setItem('daur_phone', phone); notifPhone = phone; notifIdentifier = phone; }}
             function doSubscribeCitizen(pNum){{
@@ -659,6 +738,47 @@ def home():
                 }}
             }});
             if(noBtn) noBtn.addEventListener('click', function(){{ document.getElementById('notification-prompt').style.display='none'; }});
+=======
+            const phone = document.querySelector('input[name="phone"]').value;
+            
+            function subscribeToPush(userType, userIdentifier) {{
+                if ('serviceWorker' in navigator && 'PushManager' in window) {{
+                    navigator.serviceWorker.ready.then(function(registration) {{
+                        registration.pushManager.subscribe({{
+                            userVisibleOnly: true,
+                            applicationServerKey: 'BMcKowjzM8xDPBTorZwaEBXSWHvFTrqec2T4Y2AACPjMrS-c-i6z_bLptLQ_sWtQsr88L0GtKnPY0MUbxdr7nws'
+                        }}).then(function(subscription) {{
+                            fetch('/subscribe', {{
+                                method: 'POST',
+                                headers: {{ 'Content-Type': 'application/json' }},
+                                body: JSON.stringify({{
+                                    subscription: subscription,
+                                    user_type: userType,
+                                    user_identifier: userIdentifier
+                                }})
+                            }});
+                        }});
+                    }});
+                }}
+            }}
+            
+            document.getElementById('notif-yes').addEventListener('click', function() {{
+                if ('Notification' in window) {{
+                    Notification.requestPermission().then(function(permission) {{
+                        if (permission === 'granted') {{
+                            subscribeToPush('citizen', phone);
+                            document.getElementById('notification-prompt').innerHTML = 
+                                '<p class="text-sm text-green-800">✅ Notifications enabled!</p>';
+                        }}
+                    }});
+                }}
+                document.getElementById('notification-prompt').querySelector('.flex').style.display = 'none';
+            }});
+            
+            document.getElementById('notif-no').addEventListener('click', function() {{
+                document.getElementById('notification-prompt').style.display = 'none';
+            }});
+>>>>>>> b700537ffc3b52cfabc0e2fcb57ab3764fbd957d
         }});
         </script>'''
 

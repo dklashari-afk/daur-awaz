@@ -3,5 +3,9 @@ Flask-SQLAlchemy==3.1.1
 Werkzeug==2.3.7
 pytz==2024.1
 psycopg2-binary==2.9.10
+<<<<<<< HEAD
 pywebpush==1.14.0
 cryptography==41.0.7a
+=======
+pywebpush==1.14.1
+>>>>>>> b700537ffc3b52cfabc0e2fcb57ab3764fbd957d
