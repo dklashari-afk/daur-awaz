@@ -1015,6 +1015,16 @@ def change_status(id, status):
             old_status = c.status
             c.status = status
             db.session.commit()
+             print(f"📢 Notification: Complaint {c.tracking_id} is now {status}")
+            # Browser notification ke liye trigger
+            try:
+                from flask import jsonify
+                # Yahan push notification bhejne ka code aayega
+                pass
+            except Exception as e:
+                print(f"Push error: {e}")
+                
+    return redirect("/admin")
             
             # ============================================================
             # NOTIFICATION ON STATUS CHANGE — ADDED
