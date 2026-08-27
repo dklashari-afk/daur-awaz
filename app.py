@@ -6,13 +6,20 @@ Built by DK Lashari
 VERSION: 2.0 (PostgreSQL + PWA + Privacy Fixes + PKT Time)
 """
 
-from flask import Flask, render_template_string, request, redirect, session, url_for, Response
+from flask import Flask, render_template_string, request, redirect, session, url_for, Response, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
-import os, uuid, base64, calendar
+import os, uuid, base64, calendar, json
 from collections import OrderedDict
 import pytz
+try:
+    from pywebpush import webpush, WebPushException
+    HAS_WEBPUSH = True
+except ImportError:
+    HAS_WEBPUSH = False
+    webpush = None
+    WebPushException = Exception
 
 # ============================================================
 # FLASK APP INIT
@@ -97,7 +104,14 @@ STATUS_STYLES = {
 
 SEED_ADMIN_USER = os.environ.get("ADMIN_USERNAME", "admin")
 SEED_ADMIN_PASS = os.environ.get("ADMIN_PASSWORD", "admin123")
-
+# ============================================================
+# VAPID KEYS (for Web Push Notifications)
+# ============================================================
+VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', 'BMcKowjzM8xDPBTorZwaEBXSWHvFTrqec2T4Y2AACPjMrS-c-i6z_bLptLQ_sWtQsr88L0GtKnPY0MUbxdr7nws')
+VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', 'a8sydyZWiBj3ugrpOo1XNZEHK_6KtU61OrIDTsgMDHU')
+VAPID_CLAIMS = {
+    'sub': 'mailto:info@daurawaz.gov.pk'
+}
 # ============================================================
 # MODELS — WITH PKT TIME
 # ============================================================
@@ -128,6 +142,27 @@ class AdminUser(db.Model):
     created_at = db.Column(db.DateTime, default=get_pkt_time)
 
 # ============================================================
+# NOTIFICATION MODELS — NEW
+# ============================================================
+class PushSubscription(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    endpoint = db.Column(db.String(500), unique=True)
+    keys = db.Column(db.JSON)
+    user_type = db.Column(db.String(20))  # 'citizen' or 'chairman'
+    user_identifier = db.Column(db.String(100))  # phone for citizen, 'chairman' for chairman
+    created_at = db.Column(db.DateTime, default=get_pkt_time)
+
+class Notification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_type = db.Column(db.String(20))  # 'citizen' or 'chairman'
+    user_identifier = db.Column(db.String(100))  # phone or 'chairman'
+    title = db.Column(db.String(200))
+    body = db.Column(db.Text)
+    link = db.Column(db.String(500))
+    is_read = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=get_pkt_time)
+
+# ============================================================
 # DATABASE INIT
 # ============================================================
 with app.app_context():
@@ -140,6 +175,126 @@ with app.app_context():
             role="Chairman",
         ))
         db.session.commit()
+
+# ============================================================
+# NOTIFICATION FUNCTIONS — NEW
+# ============================================================
+
+def send_web_push(user_type, user_identifier, title, body, link='/'):
+    if not HAS_WEBPUSH:
+        return
+    subs = PushSubscription.query.filter_by(user_type=user_type, user_identifier=user_identifier).all()
+    if user_type == 'chairman' and not subs:
+        subs = PushSubscription.query.filter_by(user_type='chairman').all()
+    for sub in subs:
+        try:
+            webpush(subscription_info={"endpoint": sub.endpoint, "keys": sub.keys}, data=json.dumps({"title": title, "body": body, "url": link}), vapid_private_key=VAPID_PRIVATE_KEY, vapid_claims=VAPID_CLAIMS)
+        except Exception as e:
+            print(f"Push failed: {e}")
+            if "410" in str(e) or "404" in str(e):
+                try:
+                    db.session.delete(sub)
+                    db.session.commit()
+                except:
+                    pass
+
+def create_notification(user_type, user_identifier, title, body, link='/'):
+    if not user_identifier:
+        return None
+    user_identifier = str(user_identifier).strip()
+    if not user_identifier:
+        return None
+    notif = Notification(user_type=user_type, user_identifier=user_identifier, title=title, body=body, link=link)
+    db.session.add(notif)
+    db.session.commit()
+    try:
+        send_web_push(user_type, user_identifier, title, body, link)
+    except Exception as e:
+        print(f"push error {e}")
+    return notif
+
+def notify_citizen(complaint, status_update=False):
+    status_messages = {'Pending': 'آپ کی شکایت موصول ہو گئی ہے۔ ہماری ٹیم جلد رابطہ کرے گی۔','In-Progress': 'آپ کی شکایت پر کام شروع ہو گیا ہے۔','Resolved': 'آپ کی شکایت حل کر دی گئی ہے۔'}
+    title = f"Complaint {complaint.tracking_id}" + (" Updated" if status_update else " Registered")
+    body = status_messages.get(complaint.status, '')
+    link = f"/track?id={complaint.tracking_id}"
+    create_notification('citizen', complaint.phone, title, body, link)
+
+def notify_chairman(complaint):
+    title = "🔔 New Complaint"
+    body = f"{complaint.name} - {complaint.category} ({complaint.tracking_id})"
+    link = "/admin"
+    create_notification('chairman', 'chairman', title, body, link)
+
+# ============================================================
+# NOTIFICATION ROUTES — NEW
+# ============================================================
+
+@app.route('/vapid-public-key')
+def vapid_public_key():
+    return jsonify({'publicKey': VAPID_PUBLIC_KEY})
+
+@app.route('/subscribe', methods=['POST'])
+def subscribe():
+    """Save push subscription"""
+    try:
+        data = request.json
+        if not data:
+            return jsonify({'error': 'No JSON'}), 400
+        subscription_data = data.get('subscription')
+        if not subscription_data or not subscription_data.get('endpoint'):
+            return jsonify({'error': 'Invalid sub'}), 400
+        user_type = data.get('user_type', 'citizen')
+        user_identifier = str(data.get('user_identifier', 'unknown')).strip() or 'unknown'
+        existing = PushSubscription.query.filter_by(endpoint=subscription_data.get('endpoint')).first()
+        if existing:
+            existing.user_type = user_type
+            existing.user_identifier = user_identifier
+            existing.keys = subscription_data.get('keys')
+            db.session.commit()
+            return jsonify({'status': 'updated'}), 200
+        new_sub = PushSubscription(endpoint=subscription_data.get('endpoint'), keys=subscription_data.get('keys'), user_type=user_type, user_identifier=user_identifier)
+        db.session.add(new_sub)
+        db.session.commit()
+        return jsonify({'status': 'subscribed'}), 201
+    except Exception as e:
+        print(f"Subscribe error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/notifications')
+def get_notifications():
+    """Get notifications for current user"""
+    user_type = request.args.get('type', 'citizen')
+    user_identifier = request.args.get('identifier', '')
+    
+    if user_type == 'chairman':
+        notifications = Notification.query.filter_by(
+            user_type='chairman',
+            user_identifier='chairman'
+        ).order_by(Notification.created_at.desc()).limit(50).all()
+    else:
+        notifications = Notification.query.filter_by(
+            user_type='citizen',
+            user_identifier=user_identifier
+        ).order_by(Notification.created_at.desc()).limit(50).all()
+    
+    return jsonify([{
+        'id': n.id,
+        'title': n.title,
+        'body': n.body,
+        'link': n.link,
+        'is_read': n.is_read,
+        'created_at': n.created_at.strftime('%d %b %Y, %I:%M %p')
+    } for n in notifications])
+
+@app.route('/mark-notification-read/<int:id>', methods=['POST'])
+def mark_notification_read(id):
+    """Mark a notification as read"""
+    notif = db.session.get(Notification, id)
+    if notif:
+        notif.is_read = True
+        db.session.commit()
+    return jsonify({'status': 'success'})
 
 # ============================================================
 # PWA MANIFEST & SERVICE WORKER
@@ -171,19 +326,25 @@ def manifest():
 def service_worker():
     return app.response_class(
         response='''self.addEventListener("install", e => {
-  e.waitUntil(
-    caches.open("daur-awaz-v1").then(cache => {
-      return cache.addAll(["/", "/offline"]);
-    })
-  );
+  self.skipWaiting();
+  e.waitUntil(caches.open("daur-awaz-v2").then(cache => { return cache.addAll(["/", "/offline"]).catch(()=>{}); }));
 });
+self.addEventListener("activate", e => { e.waitUntil(self.clients.claim()); });
 self.addEventListener("fetch", e => {
-  e.respondWith(
-    caches.match(e.request).then(response => {
-      return response || fetch(e.request);
-    })
-  );
-});''',
+  e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)).catch(()=>fetch(e.request)));
+});
+self.addEventListener('push', function(event) {
+  let data = { title: 'Daur Awaz', body: 'Nayi update hai!', url: '/' };
+  try { if (event.data) data = event.data.json(); } catch(e) {}
+  const options = { body: data.body, icon: 'https://cdn-icons-png.flaticon.com/512/3112/3112946.png', badge: 'https://cdn-icons-png.flaticon.com/512/3112/3112946.png', data: { url: data.url || '/' } };
+  event.waitUntil(self.registration.showNotification(data.title, options));
+});
+self.addEventListener('notificationclick', function(event) {
+  event.notification.close();
+  const url = event.notification.data.url || '/';
+  event.waitUntil(clients.matchAll({type: 'window'}).then(clientsArr=>{ for(var c of clientsArr){ if(c.url.includes(url) && 'focus' in c) return c.focus(); } if(clients.openWindow) return clients.openWindow(url); }));
+});
+''',
         mimetype='application/javascript'
     )
 
@@ -251,12 +412,56 @@ def navbar(active=""):
     <nav class="flex items-center gap-2 sm:gap-4">
       {link('/', 'Home', 'ہوم', 'home')}
       {link('/my-complaints', 'My Complaints', 'میری شکایات', 'my')}
+      <div class="relative">
+        <button id="notif-bell-btn" onclick="toggleNotifPanel()" class="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center relative">
+          <i class="fa-solid fa-bell text-gray-600"></i>
+          <span id="notif-badge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full items-center justify-center">0</span>
+        </button>
+        <div id="notif-panel" class="hidden absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-xl border shadow-xl z-[100] max-h-[70vh] overflow-hidden flex flex-col">
+          <div class="p-3 border-b flex justify-between items-center bg-gray-50"><h3 class="font-bold text-sm">Notifications</h3><button onclick="toggleNotifPanel()" class="text-gray-400"><i class="fa-solid fa-xmark"></i></button></div>
+          <div id="notif-list" class="overflow-y-auto flex-1"><div class="p-4 text-center text-xs text-gray-400">Loading...</div></div>
+        </div>
+      </div>
       <a href="/login" class="px-3 sm:px-4 py-2 bg-gov text-white rounded-full text-xs sm:text-sm font-semibold hover:bg-gov-dark transition flex items-center gap-1.5">
         <i class="fa-solid fa-user-shield"></i> <span class="hidden sm:inline">Chairman</span> Login
       </a>
     </nav>
   </div>
 </header>
+{NOTIF_BELL_JS}
+'''
+
+NOTIF_BELL_JS = '''
+<script>
+let notifPhone = localStorage.getItem('daur_phone') || '';
+let notifType = window.location.pathname.startsWith('/admin') ? 'chairman' : 'citizen';
+let notifIdentifier = notifType === 'chairman' ? 'chairman' : notifPhone;
+function updateBell(count){
+  const b=document.getElementById('notif-badge');
+  if(b){ if(count>0){ b.textContent=count>9?'9+':count; b.classList.remove('hidden'); b.classList.add('flex'); } else { b.classList.add('hidden'); b.classList.remove('flex'); } }
+}
+function fetchNotifications(){
+  if(notifType==='citizen' && !notifIdentifier) return;
+  fetch(`/notifications?type=${notifType}&identifier=${encodeURIComponent(notifIdentifier)}`).then(r=>r.json()).then(data=>{
+    const unread=data.filter(n=>!n.is_read).length; updateBell(unread);
+    const listEl=document.getElementById('notif-list');
+    if(listEl){
+      if(data.length===0) listEl.innerHTML='<div class="p-4 text-center text-xs text-gray-400">Koi notification nahi</div>';
+      else listEl.innerHTML=data.map(n=>`<div class="p-3 border-b hover:bg-gray-50 cursor-pointer ${n.is_read?'opacity-60':''}" onclick="markRead(${n.id}, '${n.link}')"><p class="text-sm font-semibold">${n.title}</p><p class="text-xs text-gray-600 mt-0.5">${n.body}</p><p class="text-[10px] text-gray-400 mt-1">${n.created_at}</p></div>`).join('');
+    }
+  }).catch(()=>{});
+}
+function markRead(id, link){ fetch(`/mark-notification-read/${id}`, {method:'POST'}).then(()=>{ window.location.href=link; }); }
+function toggleNotifPanel(){ const p=document.getElementById('notif-panel'); if(p) p.classList.toggle('hidden'); }
+function doSubscribe(userType, userIdentifier){
+  if(!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.ready.then(reg=>{ return reg.pushManager.getSubscription().then(ex=>{ if(ex) return ex; return fetch('/vapid-public-key').then(r=>r.json()).then(d=>{ const k=d.publicKey; const pad='='.repeat((4-k.length%4)%4); const b64=(k+pad).replace(/-/g,'+').replace(/_/g,'/'); const raw=atob(b64); const arr=new Uint8Array(raw.length); for(let i=0;i<raw.length;i++) arr[i]=raw.charCodeAt(i); return reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:arr}); }); }).then(sub=>{ if(!sub) return; return fetch('/subscribe',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({subscription:sub, user_type:userType, user_identifier:userIdentifier})}); }).then(()=>fetchNotifications()); });
+}
+document.addEventListener('DOMContentLoaded', ()=>{
+  fetchNotifications(); setInterval(fetchNotifications,15000);
+  document.addEventListener('click', e=>{ const p=document.getElementById('notif-panel'); const b=document.getElementById('notif-bell-btn'); if(p&&b&&!p.contains(e.target)&&!b.contains(e.target)) p.classList.add('hidden'); });
+});
+</script>
 '''
 
 FOOTER = f'''
@@ -407,11 +612,55 @@ def home():
     pending = Complaint.query.filter_by(status="Pending").count()
 
     tracking_id = session.pop('tracking_id', None)
+    last_phone = session.pop('last_phone', None)
+    safe_phone = (last_phone or '').strip() if last_phone else ''
     success_box = ""
     if tracking_id:
         success_box = f'''<div class="mt-5 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
             <p class="text-sm font-bold text-emerald-800"><i class="fa-solid fa-circle-check mr-1"></i> Complaint Darj Ho Gayi!</p>
-            <p class="text-xs text-emerald-700 mt-1">Tracking ID: <b class="font-mono">{tracking_id}</b> — is ID ko save kar lein, isse aap apni complaint <a href="/track?id={tracking_id}" class="underline font-semibold">track</a> kar sakte hain.</p></div>'''
+            <p class="text-xs text-emerald-700 mt-1">Tracking ID: <b class="font-mono">{tracking_id}</b> — is ID ko save kar lein, isse aap apni complaint <a href="/track?id={tracking_id}" class="underline font-semibold">track</a> kar sakte hain.</p>
+            <div id="notification-prompt" class="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p class="text-sm text-blue-800">🔔 Get updates on your complaint?</p>
+                <div class="flex gap-2 mt-2">
+                    <button id="notif-yes" class="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">Yes, Notify Me</button>
+                    <button id="notif-no" class="px-3 py-1 bg-gray-200 rounded text-xs">No Thanks</button>
+                </div>
+                <p class="text-[10px] text-gray-500 mt-2">Phone: {safe_phone}</p>
+            </div>
+        </div>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {{
+            const phone = "{safe_phone}";
+            if(phone){{ localStorage.setItem('daur_phone', phone); notifPhone = phone; notifIdentifier = phone; }}
+            function doSubscribeCitizen(pNum){{
+                if(!('serviceWorker' in navigator)) return;
+                navigator.serviceWorker.ready.then(reg=>{{
+                    return reg.pushManager.getSubscription().then(ex=>{{
+                        if(ex) return ex;
+                        return fetch('/vapid-public-key').then(r=>r.json()).then(d=>{{
+                            const k=d.publicKey; const pad='='.repeat((4-k.length%4)%4); const b64=(k+pad).replace(/-/g,'+').replace(/_/g,'/'); const raw=atob(b64); const arr=new Uint8Array(raw.length); for(let i=0;i<raw.length;i++) arr[i]=raw.charCodeAt(i); return reg.pushManager.subscribe({{userVisibleOnly:true, applicationServerKey:arr}});
+                        }});
+                    }}).then(sub=>{{
+                        if(!sub) return;
+                        return fetch('/subscribe',{{method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify({{subscription:sub, user_type:'citizen', user_identifier:pNum}})}});
+                    }}).then(()=>fetchNotifications());
+                }});
+            }}
+            const yesBtn=document.getElementById('notif-yes');
+            const noBtn=document.getElementById('notif-no');
+            if(yesBtn) yesBtn.addEventListener('click', function(){{
+                if('Notification' in window){{
+                    Notification.requestPermission().then(function(permission){{
+                        if(permission==='granted'){{
+                            doSubscribeCitizen(phone);
+                            document.getElementById('notification-prompt').innerHTML='<p class="text-sm text-green-800">✅ Notifications enabled!</p>';
+                        }}
+                    }});
+                }}
+            }});
+            if(noBtn) noBtn.addEventListener('click', function(){{ document.getElementById('notification-prompt').style.display='none'; }});
+        }});
+        </script>'''
 
     area_options = "".join(f'<option value="{a}">{a}</option>' for a in AREAS)
     category_options = "".join(f'<option value="{c}">{c}</option>' for c, _ in CATEGORIES)
@@ -457,7 +706,15 @@ def submit():
     )
     db.session.add(c)
     db.session.commit()
+    
+    # ============================================================
+    # NOTIFICATIONS — ADDED
+    # ============================================================
+    notify_citizen(c, status_update=False)
+    notify_chairman(c)
+    
     session['tracking_id'] = tracking
+    session['last_phone'] = phone
     return redirect("/")
 
 @app.route("/photo/<int:id>")
@@ -767,8 +1024,15 @@ def change_status(id, status):
     if status in STATUS_STYLES:
         c = db.session.get(Complaint, id)
         if c:
+            old_status = c.status
             c.status = status
             db.session.commit()
+            
+            # ============================================================
+            # NOTIFICATION ON STATUS CHANGE — ADDED
+            # ============================================================
+            if old_status != status:
+                notify_citizen(c, status_update=True)
     return redirect(request.referrer or "/admin")
 
 @app.route("/remark/<int:id>", methods=["POST"])
