@@ -1026,9 +1026,9 @@ def change_status(id, status):
                 
     return redirect("/admin")
             
-            # ============================================================
-            # NOTIFICATION ON STATUS CHANGE — ADDED
-            # ============================================================
+    # ============================================================
+    # NOTIFICATION ON STATUS CHANGE — ADDED
+    # ============================================================
             if old_status != status:
                 notify_citizen(c, status_update=True)
     return redirect(request.referrer or "/admin")
