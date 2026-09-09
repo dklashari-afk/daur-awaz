@@ -1144,10 +1144,20 @@ ADMIN_DASH = '''
 '''
 
 def admin_row_html(c):
-    photo_html = f'<img src="/photo/{c.id}" class="w-16 h-16 object-cover rounded-lg border flex-shrink-0" alt="">' if c.photo_data else '<div class="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center text-gray-300 flex-shrink-0"><i class="fa-solid fa-image"></i></div>'
+    photo_html = ""
+    if c.photo_data:
+        photo_html = f'''
+        <a href="/photo/{c.id}" target="_blank" class="flex-shrink-0">
+            <img src="/photo/{c.id}" class="w-16 h-16 object-cover rounded-lg border hover:opacity-80 transition cursor-pointer" alt="Complaint photo">
+        </a>
+        '''
+    else:
+        photo_html = '<div class="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center text-gray-300 flex-shrink-0"><i class="fa-solid fa-image"></i></div>'
+    
     public_btn = ''
     if not c.is_public:
         public_btn = f'<a href="/admin/public/{c.id}" class="text-xs text-center px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition">Approve for Public</a>'
+    
     return f'''
     <div class="bg-white rounded-xl border p-4 flex flex-col md:flex-row gap-4">
       {photo_html}
