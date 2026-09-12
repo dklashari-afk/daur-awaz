@@ -540,7 +540,7 @@ def navbar(active=""):
     <span class="urdu">ٹاؤن کمیٹی دوڑ — سرکاری شہری خدمات پورٹل</span>
     <span class="hidden sm:inline"> &nbsp;•&nbsp; Official Citizen Services Portal, Town Committee Daur</span>
   </div>
-  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex justify-between items-center gap-3">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap justify-between items-center gap-y-2 gap-x-3">
     <a href="/" class="flex items-center gap-3">
       {emblem(44)}
       <div class="leading-tight">
@@ -548,7 +548,7 @@ def navbar(active=""):
         <p class="text-[11px] text-gray-500">{COUNCIL_NAME_EN}</p>
       </div>
     </a>
-    <nav class="flex items-center gap-2 sm:gap-4">
+    <nav class="flex items-center flex-wrap gap-x-3 gap-y-2 sm:gap-4">
       {link('/', 'Home', 'ہوم', 'home')}
       {link('/my-complaints', 'My Complaints', 'میری شکایات', 'my')}
       {link('/progress', 'Progress', 'ترقی', 'progress')}
