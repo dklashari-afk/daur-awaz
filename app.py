@@ -159,6 +159,14 @@ class Notification(db.Model):
     is_read = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=get_pkt_time)
 
+class ProgressPost(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    photo_data = db.Column(db.Text)
+    author = db.Column(db.String(100))
+    created_at = db.Column(db.DateTime, default=get_pkt_time)
+
 # ============================================================
 # DATABASE INIT
 # ============================================================
@@ -543,6 +551,7 @@ def navbar(active=""):
     <nav class="flex items-center gap-2 sm:gap-4">
       {link('/', 'Home', 'ہوم', 'home')}
       {link('/my-complaints', 'My Complaints', 'میری شکایات', 'my')}
+      {link('/progress', 'Progress', 'ترقی', 'progress')}
       <div class="relative">
         <button id="notif-bell-btn" onclick="toggleNotifPanel()" class="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center relative">
           <i class="fa-solid fa-bell text-gray-600"></i>
@@ -1112,6 +1121,7 @@ ADMIN_DASH = '''
       <span class="text-xs text-gray-300 hidden sm:inline"><i class="fa-solid fa-circle-user mr-1"></i>{logged_in_name} ({logged_in_role})</span>
       <a href="/" class="bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full text-xs transition">Public View</a>
       <a href="/admin/reports" class="bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full text-xs transition"><i class="fa-solid fa-chart-column mr-1"></i>Reports</a>
+      <a href="/admin/progress" class="bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full text-xs transition"><i class="fa-solid fa-bullhorn mr-1"></i>Progress Posts</a>
       <a href="/admin/account" class="bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full text-xs transition"><i class="fa-solid fa-key mr-1"></i>My Account</a>
       <a href="/admin/users" class="bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full text-xs transition"><i class="fa-solid fa-users-gear mr-1"></i>Manage Users</a>
       <a href="/logout" class="bg-red-500/90 hover:bg-red-500 px-3 py-1.5 rounded-full text-xs transition">Logout</a>
@@ -1184,7 +1194,7 @@ def admin_row_html(c):
         <a href="/delete/{c.id}" onclick="return confirm('Delete this complaint?')" class="text-xs text-center px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition">Delete</a>
       </div>
     </div>
-    '''
+    ''' 
 
 @app.route("/admin")
 def admin():
@@ -1533,6 +1543,170 @@ REPORTS_HTML = '''
 </div>
 </body></html>
 '''
+
+# ============================================================
+# PROGRESS POSTS
+# ============================================================
+PROGRESS_HTML = '''
+<!DOCTYPE html><html lang="en"><head><title>Progress — Daur Awaz</title>{head}</head>
+<body class="bg-[#F6F8F7]">
+{navbar}
+<section class="bg-gradient-to-b from-white to-[#F6F8F7] border-b">
+  <div class="max-w-6xl mx-auto px-6 py-10 text-center">
+    <span class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gov/10 text-gov text-xs font-bold mb-4">
+      <i class="fa-solid fa-bullhorn"></i> Official Progress Updates
+    </span>
+    <h2 class="urdu text-2xl sm:text-3xl text-gov-dark font-bold mb-2 hero-text">ترقیاتی کاموں کی تازہ ترین اپڈیٹس</h2>
+    <p class="text-gray-600 max-w-2xl mx-auto text-sm sm:text-base">Latest progress updates and development work shared by the Chairman's office, Town Committee Daur.</p>
+  </div>
+</section>
+<div class="max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-5">
+  {posts}
+</div>
+{footer}
+</body></html>
+'''
+
+ADMIN_PROGRESS_HTML = '''
+<!DOCTYPE html><html lang="en"><head><title>Progress Posts — Daur Awaz</title>{head}</head>
+<body class="bg-[#F6F8F7]">
+<header class="bg-gov-dark text-white">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex justify-between items-center flex-wrap gap-3">
+    <div class="flex items-center gap-3">{emblem_sm}<div><h1 class="font-bold">Progress Posts</h1><p class="text-xs text-gray-300">{council}</p></div></div>
+    <a href="/admin" class="bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full text-xs transition">← Back to Dashboard</a>
+  </div>
+</header>
+<div class="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+  <div class="bg-white rounded-2xl p-6 shadow-sm border mb-8">
+    <h2 class="font-bold text-lg mb-1">Naya Progress Post</h2>
+    <p class="text-sm text-gray-500 mb-5">Publish an update — it will appear immediately on the public Progress page.</p>
+    <form method="POST" action="/admin/progress/add" enctype="multipart/form-data" class="space-y-3.5">
+      <input name="title" required placeholder="Post ka title" class="w-full px-4 py-2.5 rounded-xl bg-gray-50 border text-sm focus:outline-none focus:ring-2 focus:ring-gov/30 focus:border-gov">
+      <textarea name="description" required rows="4" placeholder="Tafseel likhein..." class="w-full px-4 py-2.5 rounded-xl bg-gray-50 border text-sm focus:outline-none focus:ring-2 focus:ring-gov/30 focus:border-gov"></textarea>
+      <div>
+        <label class="text-xs text-gray-500 mb-1 block">Photo attach karein (optional)</label>
+        <input type="file" name="photo" accept="image/*" class="w-full text-xs text-gray-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-gov/10 file:text-gov file:text-xs file:font-semibold">
+      </div>
+      <button class="w-full py-3 bg-gov text-white rounded-xl font-semibold text-sm hover:bg-gov-dark transition flex items-center justify-center gap-2">
+        Post Publish Karein <i class="fa-solid fa-arrow-right"></i>
+      </button>
+    </form>
+  </div>
+  <h2 class="font-bold text-sm mb-4"><i class="fa-solid fa-list mr-1.5 text-gov"></i> All Progress Posts</h2>
+  <div class="grid gap-3">{rows}</div>
+</div>
+</body></html>
+'''
+
+def progress_post_card_html(p):
+    photo_html = ""
+    if p.photo_data:
+        photo_html = f'''
+        <a href="/progress-photo/{p.id}" target="_blank" class="block mb-4">
+            <img src="/progress-photo/{p.id}" class="w-full h-56 object-cover rounded-xl border hover:opacity-90 transition cursor-pointer" alt="{p.title}">
+        </a>
+        '''
+    return f'''
+    <div class="bg-white rounded-2xl p-6 shadow-sm border">
+      {photo_html}
+      <span class="text-xs text-gray-400">{p.created_at.strftime('%d %b %Y, %I:%M %p')}</span>
+      <h3 class="font-bold text-lg text-gray-800 mb-1.5 mt-1">{p.title}</h3>
+      <p class="text-sm text-gray-600 whitespace-pre-line">{p.description}</p>
+      <p class="text-xs text-gray-400 mt-3">— {p.author or 'Chairman'}</p>
+    </div>
+    '''
+
+def admin_progress_row_html(p):
+    photo_html = ""
+    if p.photo_data:
+        photo_html = f'''
+        <a href="/progress-photo/{p.id}" target="_blank" class="flex-shrink-0">
+            <img src="/progress-photo/{p.id}" class="w-16 h-16 object-cover rounded-lg border hover:opacity-80 transition cursor-pointer" alt="Progress photo">
+        </a>
+        '''
+    else:
+        photo_html = '<div class="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center text-gray-300 flex-shrink-0"><i class="fa-solid fa-image"></i></div>'
+    desc = p.description or ''
+    desc_short = desc[:200] + ('...' if len(desc) > 200 else '')
+    return f'''
+    <div class="bg-white rounded-xl border p-4 flex flex-col md:flex-row gap-4">
+      {photo_html}
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap mb-1">
+          <span class="text-xs text-gray-400">{p.created_at.strftime('%d %b %Y, %I:%M %p')}</span>
+          <span class="text-xs text-gray-400">by {p.author or 'Chairman'}</span>
+        </div>
+        <p class="text-sm font-semibold text-gray-800">{p.title}</p>
+        <p class="text-xs text-gray-500 mt-1">{desc_short}</p>
+      </div>
+      <div class="flex md:flex-col gap-2 flex-shrink-0">
+        <a href="/admin/progress/delete/{p.id}" onclick="return confirm('Delete this progress post?')" class="text-xs text-center px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition">Delete</a>
+      </div>
+    </div>
+    '''
+
+@app.route("/progress")
+def progress():
+    posts = ProgressPost.query.order_by(ProgressPost.created_at.desc()).all()
+    cards = "".join(progress_post_card_html(p) for p in posts) or '<div class="text-center text-gray-400 py-16 bg-white rounded-2xl border"><i class="fa-solid fa-bullhorn text-3xl mb-2"></i><p class="text-sm">Abhi tak koi progress post nahi hai.</p></div>'
+    return PROGRESS_HTML.format(
+        head=HEAD.format(emblem_favicon=emblem_favicon()),
+        navbar=navbar("progress"),
+        posts=cards,
+        footer=FOOTER,
+    )
+
+@app.route("/progress-photo/<int:id>")
+def progress_photo(id):
+    p = db.session.get(ProgressPost, id)
+    if not p or not p.photo_data:
+        return "", 404
+    header, b64data = p.photo_data.split(",", 1)
+    mime = header.split(":")[1].split(";")[0]
+    return Response(base64.b64decode(b64data), mimetype=mime)
+
+@app.route("/admin/progress")
+def admin_progress():
+    if not session.get("admin"):
+        return redirect("/login")
+    posts = ProgressPost.query.order_by(ProgressPost.created_at.desc()).all()
+    rows = "".join(admin_progress_row_html(p) for p in posts) or '<div class="text-center text-gray-400 py-16 bg-white rounded-xl border">Abhi tak koi progress post nahi hai.</div>'
+    return ADMIN_PROGRESS_HTML.format(
+        head=HEAD.format(emblem_favicon=emblem_favicon()),
+        emblem_sm=emblem(38), council=COUNCIL_NAME_EN,
+        rows=rows,
+    )
+
+@app.route("/admin/progress/add", methods=["POST"])
+def admin_progress_add():
+    if not session.get("admin"):
+        return redirect("/login")
+    photo_data = None
+    file = request.files.get("photo")
+    if file and file.filename:
+        raw = file.read()
+        if len(raw) <= 2 * 1024 * 1024:
+            mime = file.mimetype or "image/jpeg"
+            photo_data = f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
+    p = ProgressPost(
+        title=request.form.get("title", "").strip(),
+        description=request.form.get("description", "").strip(),
+        photo_data=photo_data,
+        author=session.get("admin_name", "Chairman"),
+    )
+    db.session.add(p)
+    db.session.commit()
+    return redirect("/admin/progress")
+
+@app.route("/admin/progress/delete/<int:id>")
+def admin_progress_delete(id):
+    if not session.get("admin"):
+        return redirect("/login")
+    p = db.session.get(ProgressPost, id)
+    if p:
+        db.session.delete(p)
+        db.session.commit()
+    return redirect("/admin/progress")
 
 def _rate(stats):
     return round((stats["Resolved"] / stats["total"]) * 100) if stats["total"] else 0
